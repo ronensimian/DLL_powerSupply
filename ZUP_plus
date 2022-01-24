@@ -1,0 +1,238 @@
+using System;
+using Ivi.Visa.Interop;
+using System.Threading;
+using System.Resources;
+using System.Runtime.Remoting.Messaging;
+using System.IO.Ports;
+
+
+namespace TestExecutive
+{
+    public class ZUP_Plus
+    {
+        public ZUP_Plus()
+        {
+
+        }
+
+        #region General
+
+        /// <summary>
+        /// Init PS
+        /// </summary>
+        /// <param name="comport">Comport</param>
+        /// <param name="baudrate">BaudRate</param>
+        /// <param name="psAddress">Address of power supply</param>
+        public bool Init(string comport, int baudrate)
+        {
+            try
+            {
+                if (isPsConnected == false)
+                {
+                    _serial = new SerialPort(comport, baudrate, Parity.None, 8, StopBits.One);
+                    if (_serial.IsOpen == false)
+                    {
+                        _serial.Open();
+                        isPsConnected = true;
+                    }
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+            }
+            return false;
+        }
+
+
+        public bool ConnectToPS(int psAddress)
+        {
+            try
+            {
+                if (WriteOnly($"ADR {psAddress}\r") == true)
+                {
+                    if (WriteOnly("RMT 1\r") == true)
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+            }
+            return false;
+        }
+
+        public bool Close()
+        {
+            try
+            {
+                if (_serial != null)
+                {
+                    for (int psAddress = 1; psAddress <= 7; psAddress++)
+                    {
+                        SetOutput(psAddress, false);
+
+                    }
+                    _serial.Close();
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+            }
+            return false;
+        }
+
+        public bool Reset()
+        {
+            try
+            {
+                if (WriteOnly("RST") == true)
+                {
+                    if (WriteOnly("CLS") == true)
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+            }
+            return false;
+        }
+
+        private string WriteAndRead(string msg)
+        {
+            try
+            {
+                _serial.ReadExisting(); // clear buffer
+                _serial.Write(msg + "\r\n");
+                Thread.Sleep(slpZup);
+                return _serial.ReadExisting().Replace("\r", "");
+            }
+            catch
+            {
+            }
+            return "";
+        }
+
+        private bool WriteOnly(string msg)
+        {
+            try
+            {
+                _serial.Write(msg + "\r");
+                Thread.Sleep(slpZup);
+                return true;
+            }
+            catch (Exception ex)
+            {
+            }
+            return false;
+        }
+
+
+        private bool SetValueCommand(int psAddress, string command, double inputValue)
+        {
+            try
+            {
+                ConnectToPS(psAddress);
+                WriteOnly($"{command} {inputValue}");
+                return true;
+            }
+            catch
+            {
+            }
+            return false;
+        }
+
+        private bool GetValueCommand(int psAddress, string command, out double outputValue)
+        {
+            outputValue = -99; // reset value
+            try
+            {
+                ConnectToPS(psAddress);
+                string RetString = WriteAndRead(command);
+                return double.TryParse(RetString, out outputValue);
+            }
+            catch
+            {
+            }
+            return false;
+        }
+
+        #endregion General
+
+
+        #region Set
+
+        public bool SetOutput(int psAddress, bool On_Off)
+        {
+            string str = "0";
+            if (On_Off)
+            {
+                str = "1";
+            }
+            try
+            {
+                if (_serial.IsOpen)
+                {
+                    ConnectToPS(psAddress);
+                    WriteOnly("OUT " + str);
+                    string result = WriteAndRead("OUT?");
+                    if (result == "ON" || result == "OFF")
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+            }
+            return false;
+        }
+
+        public bool SetVoltage(int psAddress, double voltageValue)
+        {
+            return SetValueCommand(psAddress, "PV", voltageValue);
+        }
+
+        public bool SetMaxCurrent(int psAddress, double currentValue)
+        {
+            return SetValueCommand(psAddress, "PC", currentValue);
+        }
+
+        #endregion Set
+
+
+        #region Get
+
+        public bool MeasureVoltage(int psAddress, out double Voltage)
+        {
+            return GetValueCommand(psAddress, "MV?", out Voltage);
+        }
+
+        public bool MeasureCurrent(int psAddress, out double Current)
+        {
+            ConnectToPS(psAddress);
+            return GetValueCommand(psAddress, "MC?", out Current);
+        }
+
+        public bool MeasurePower(int psAddress, out double power)
+        {
+            ConnectToPS(psAddress);
+            return GetValueCommand(psAddress, "MP?", out power);
+        }
+        #endregion Get
+
+
+        #region Variables
+
+        private SerialPort _serial;
+        readonly int slpZup = 200; // Lambda suggested delay
+        private static bool isPsConnected = false;
+
+        #endregion Variables
+    }
+}
+
